@@ -58,13 +58,13 @@ const encodeDataErrorExamples = {
   address: [
     {
       input: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB0',
-      errorMessage: 'Supplied uint exceeds width: 160 vs 164',
+      errorMessage: 'value out-of-bounds',
     },
   ],
-  int8: [{ input: '256', errorMessage: 'Supplied int exceeds width: 8 vs 9' }],
-  uint: [{ input: -1, errorMessage: 'Supplied uint is negative' }],
-  uint8: [{ input: -1, errorMessage: 'Supplied uint is negative' }],
-  uint256: [{ input: -1, errorMessage: 'Supplied uint is negative' }],
+  int8: [{ input: '256', errorMessage: 'Supplied int exceeds width' }],
+  uint: [{ input: -1, errorMessage: 'value out-of-bounds' }],
+  uint8: [{ input: -1, errorMessage: 'value out-of-bounds' }],
+  uint256: [{ input: -1, errorMessage: 'value out-of-bounds' }],
   bytes1: [
     { input: 'a', errorMessage: 'Cannot convert string to buffer' },
     { input: 'test', errorMessage: 'Cannot convert string to buffer' },
@@ -129,7 +129,7 @@ describe('TypedDataUtils.encodeData', function () {
   // function just calls `encodeData` and hashes the result.
 
   describe('V3', function () {
-    describe('example data', function () {
+    describe.only('example data', function () {
       // Reassigned to silence "no-loop-func" ESLint rule
       // It was complaining because it saw that `it` and `expect` as "modified variables from the outer scope"
       // which can be dangerous to reference in a loop. But they aren't modified in this case, just invoked.
@@ -380,7 +380,7 @@ describe('TypedDataUtils.encodeData', function () {
           types,
           'V3',
         ).toString('hex'),
-      ).toThrow(`Cannot read property 'toArray' of null`);
+      ).toThrow(`invalid BigNumber value`);
     });
 
     it('should encode data with an atomic property set to undefined', function () {
@@ -567,7 +567,7 @@ describe('TypedDataUtils.encodeData', function () {
           types,
           'V3',
         ).toString('hex'),
-      ).toThrow('Unsupported or invalid type: function');
+      ).toThrow('invalid type');
     });
 
     it('should throw an error when trying to encode with a missing primary type definition', function () {
@@ -597,7 +597,7 @@ describe('TypedDataUtils.encodeData', function () {
           types,
           'V3',
         ).toString('hex'),
-      ).toThrow('Unsupported or invalid type: foo');
+      ).toThrow('invalid type');
     });
 
     it('should encode data when given extraneous types', function () {
@@ -902,7 +902,7 @@ describe('TypedDataUtils.encodeData', function () {
           types,
           'V4',
         ).toString('hex'),
-      ).toThrow(`Cannot read property 'toArray' of null`);
+      ).toThrow(`invalid BigNumber value`);
     });
 
     it('should throw an error when an atomic property is set to undefined', function () {
@@ -1089,7 +1089,7 @@ describe('TypedDataUtils.encodeData', function () {
           types,
           'V4',
         ).toString('hex'),
-      ).toThrow('Unsupported or invalid type: function');
+      ).toThrow('invalid type');
     });
 
     it('should throw an error when trying to encode with a missing primary type definition', function () {
@@ -1119,7 +1119,7 @@ describe('TypedDataUtils.encodeData', function () {
           types,
           'V4',
         ).toString('hex'),
-      ).toThrow('Unsupported or invalid type: foo');
+      ).toThrow('invalid type');
     });
 
     it('should encode data when given extraneous types', function () {
@@ -1714,7 +1714,7 @@ describe('TypedDataUtils.hashStruct', function () {
           types,
           'V3',
         ).toString('hex'),
-      ).toThrow(`Cannot read property 'toArray' of null`);
+      ).toThrow(`invalid BigNumber value`);
     });
 
     it('should hash data with an atomic property set to undefined', function () {
@@ -1901,7 +1901,7 @@ describe('TypedDataUtils.hashStruct', function () {
           types,
           'V3',
         ).toString('hex'),
-      ).toThrow('Unsupported or invalid type: function');
+      ).toThrow('invalid type');
     });
 
     it('should throw an error when trying to hash with a missing primary type definition', function () {
@@ -1931,7 +1931,7 @@ describe('TypedDataUtils.hashStruct', function () {
           types,
           'V3',
         ).toString('hex'),
-      ).toThrow('Unsupported or invalid type: foo');
+      ).toThrow('invalid type');
     });
 
     it('should hash data when given extraneous types', function () {
@@ -2236,7 +2236,7 @@ describe('TypedDataUtils.hashStruct', function () {
           types,
           'V4',
         ).toString('hex'),
-      ).toThrow(`Cannot read property 'toArray' of null`);
+      ).toThrow(`invalid BigNumber value`);
     });
 
     it('should throw an error when an atomic property is set to undefined', function () {
@@ -2423,7 +2423,7 @@ describe('TypedDataUtils.hashStruct', function () {
           types,
           'V4',
         ).toString('hex'),
-      ).toThrow('Unsupported or invalid type: function');
+      ).toThrow('invalid type');
     });
 
     it('should throw an error when trying to hash with a missing primary type definition', function () {
@@ -2453,7 +2453,7 @@ describe('TypedDataUtils.hashStruct', function () {
           types,
           'V4',
         ).toString('hex'),
-      ).toThrow('Unsupported or invalid type: foo');
+      ).toThrow('invalid type');
     });
 
     it('should hash data when given extraneous types', function () {
@@ -4176,8 +4176,7 @@ const signTypedDataV1ErrorExamples = {
     {
       // V1: Does not accept numbers as strings (arguably correctly).
       input: 10,
-      errorMessage:
-        'The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received type number (10)',
+      errorMessage: 'String values must be passed in as strings or Buffers.',
     },
   ],
   address: [
@@ -4188,7 +4187,7 @@ const signTypedDataV1ErrorExamples = {
         'Cannot convert string to buffer. toBuffer only supports 0x-prefixed hex strings and this string was given:',
     },
   ],
-  int8: [{ input: '256', errorMessage: 'Supplied int exceeds width: 8 vs 9' }],
+  int8: [{ input: '256', errorMessage: 'value out of range' }],
   bytes1: [
     { input: 'a', errorMessage: 'Cannot convert string to buffer' },
     { input: 'test', errorMessage: 'Cannot convert string to buffer' },
@@ -4314,7 +4313,7 @@ describe('signTypedData', function () {
           },
           'V1',
         ),
-      ).toThrow(`Cannot read property 'toArray' of null`);
+      ).toThrow(`invalid BigNumber value`);
     });
 
     it('should sign data with an atomic property set to undefined', function () {
@@ -4370,7 +4369,7 @@ describe('signTypedData', function () {
           },
           'V1',
         ),
-      ).toThrow('Unsupported or invalid type: function');
+      ).toThrow('invalid type');
     });
 
     it('should throw an error when trying to sign an unrecognized type', function () {
@@ -4382,7 +4381,7 @@ describe('signTypedData', function () {
           },
           'V1',
         ),
-      ).toThrow('Unsupported or invalid type: foo');
+      ).toThrow('invalid type');
     });
   });
 
@@ -4991,7 +4990,7 @@ describe('signTypedData', function () {
           },
           'V3',
         ),
-      ).toThrow(`Cannot read property 'toArray' of null`);
+      ).toThrow(`invalid BigNumber value`);
     });
 
     it('should sign data with an atomic property set to undefined', function () {
@@ -5221,7 +5220,7 @@ describe('signTypedData', function () {
           },
           'V3',
         ),
-      ).toThrow('Unsupported or invalid type: function');
+      ).toThrow('invalid type');
     });
 
     it('should throw an error when trying to sign with a missing primary type definition', function () {
@@ -5268,7 +5267,7 @@ describe('signTypedData', function () {
           },
           'V3',
         ),
-      ).toThrow('Unsupported or invalid type: foo');
+      ).toThrow('invalid type');
     });
 
     it('should sign data when given extraneous types', function () {
@@ -5924,7 +5923,7 @@ describe('signTypedData', function () {
           },
           'V4',
         ),
-      ).toThrow(`Cannot read property 'toArray' of null`);
+      ).toThrow(`invalid BigNumber value`);
     });
 
     it('should throw an error when an atomic property is set to undefined', function () {
@@ -6154,7 +6153,7 @@ describe('signTypedData', function () {
           },
           'V4',
         ),
-      ).toThrow('Unsupported or invalid type: function');
+      ).toThrow('invalid type');
     });
 
     it('should throw an error when trying to sign with a missing primary type definition', function () {
@@ -6201,7 +6200,7 @@ describe('signTypedData', function () {
           },
           'V4',
         ),
-      ).toThrow('Unsupported or invalid type: foo');
+      ).toThrow('invalid type');
     });
 
     it('should sign data when given extraneous types', function () {
@@ -6482,7 +6481,7 @@ describe('typedSignatureHash', function () {
           value: 'Hi, Alice!',
         },
       ],
-      errorMessage: 'Unsupported or invalid type: jocker',
+      errorMessage: 'invalid type - jocker',
       label: 'an unrecognized type',
     },
     {
@@ -6492,7 +6491,7 @@ describe('typedSignatureHash', function () {
           value: 'Hi, Alice!',
         },
       ],
-      errorMessage: "Cannot read property 'startsWith' of undefined",
+      errorMessage: "Cannot read property 'match' of undefined",
       label: 'no type',
     },
     {

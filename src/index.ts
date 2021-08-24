@@ -1,8 +1,15 @@
 import * as ethUtil from 'ethereumjs-util';
-import * as ethAbi from 'ethereumjs-abi';
+import { defaultAbiCoder } from '@ethersproject/abi';
+import { keccak256 } from '@ethersproject/solidity';
 import * as nacl from 'tweetnacl';
 import * as naclUtil from 'tweetnacl-util';
-import { intToHex, isHexString, stripHexPrefix } from 'ethjs-util';
+import {
+  intToHex,
+  isHexString,
+  isHexPrefixed,
+  stripHexPrefix,
+} from 'ethjs-util';
+import BN from 'bn.js';
 
 import { padWithZeroes } from './utils';
 
@@ -93,6 +100,26 @@ function getSolidityTypes() {
 }
 
 /**
+ * Parse a number in the same manner as `ethereumjs-abi`.
+ *
+ * @param number - The number to parse.
+ * @returns The parsed number.
+ */
+function legacyParseNumber(num) {
+  if (typeof num === 'string') {
+    if (isHexPrefixed(num)) {
+      return new BN(stripHexPrefix(num), 16);
+    }
+    return new BN(num, 10);
+  } else if (typeof num === 'number') {
+    return new BN(num);
+  } else if (num.toArray) {
+    return num;
+  }
+  throw new Error('Argument is not a number');
+}
+
+/**
  * Encode a single field.
  *
  * @param types - All type definitions.
@@ -134,6 +161,16 @@ function encodeField(
     return ['bytes32', ethUtil.keccak(value)];
   }
 
+  // `ethers@5` requires that mixed-case addresses are valid EIP-55 address checksums, and that
+  // they are specified as strings. `ethereumjs-abi` allowed addresses to be given as numbers as
+  // well, and it didn't check for the case when they were given as strings. The `ethereumjs-abi`
+  // encoding is preserved here for backwards compatibility.
+  // See: https://github.com/ethereumjs/ethereumjs-abi/blob/1cfbb13862f90f0b391d8a699544d5fe4dfb8c7b/lib/index.js#L117
+  if (type === 'address') {
+    type = 'uint160';
+    value = `0x${legacyParseNumber(value).toString('hex')}`;
+  }
+
   if (type.lastIndexOf(']') === type.length - 1) {
     if (version === 'V3') {
       throw new Error(
@@ -147,12 +184,51 @@ function encodeField(
     return [
       'bytes32',
       ethUtil.keccak(
-        ethAbi.rawEncode(
+        defaultAbiCoder.encode(
           typeValuePairs.map(([t]) => t),
           typeValuePairs.map(([, v]) => v),
         ),
       ),
     ];
+  }
+
+  // `ethereumjs-abi` did not correctly check the bounds for fixed-size integer types, but
+  // `ethers@5` does. The `ethereumjs-abi` encoding of integer types is preserved here for
+  // backwards compatibility.
+  // The type is set to `bytes32` to bypass bounds checking in ethers.
+  // See: https://github.com/ethereumjs/ethereumjs-abi/blob/1cfbb13862f90f0b391d8a699544d5fe4dfb8c7b/lib/index.js#L189
+  if (type.startsWith('int')) {
+    const num: BN = legacyParseNumber(value);
+    const size =
+      type === 'int' ? 256 : parseInt(/^\D+(\d+)$/u.exec(type)[1], 10);
+    if (num.bitLength() > size) {
+      throw new Error(
+        `Supplied int exceeds width: ${size} vs ${num.bitLength()}`,
+      );
+    }
+
+    const byteEncoding: Buffer = num.toTwos(256).toArrayLike(Buffer, 'be', 32);
+    // throw new Error(`size: ${size / 32}, length: ${byteEncoding.byteLength}`);
+    return [`bytes32`, byteEncoding];
+  }
+
+  // The maximum and minimum safe integers are not supported by `ethers@5`.
+  // They are converted to strings here to preserve backwards compatibility.
+  // See: https://github.com/ethers-io/ethers.js/issues/1895
+  if (type.startsWith('uint') || type.startsWith('bytes')) {
+    if (value === Number.MAX_SAFE_INTEGER) {
+      value = `0x${Number.MAX_SAFE_INTEGER.toString(16)}`;
+    } else if (value === Number.MIN_SAFE_INTEGER) {
+      value = `-0x${Number.MAX_SAFE_INTEGER.toString(16)}`;
+    }
+  }
+
+  if (type.startsWith('bytes')) {
+    // `ethers@5` requires that fixed-size byte data match the size of the type, but
+    // `ethereumjs-abi` has no such requirement. The encoding from `ethereumjs-abi` is preserved
+    // here for backwards compatibility.
+    // See: https://github.com/ethereumjs/ethereumjs-abi/blob/1cfbb13862f90f0b391d8a699544d5fe4dfb8c7b/lib/index.js#L161
+    return ['bytes32', ethUtil.setLengthRight(value, 32)];
   }
 
   return [type, value];
@@ -191,7 +267,10 @@ function encodeData(
     encodedValues.push(value);
   }
 
-  return ethAbi.rawEncode(encodedTypes, encodedValues);
+  return Buffer.from(
+    defaultAbiCoder.encode(encodedTypes, encodedValues).slice(2),
+    'hex',
+  );
 }
 
 /**
@@ -724,11 +803,70 @@ function _typedSignatureHash<T extends MessageTypes>(
   }
 
   const data = typedData.map(function (e) {
-    if (e.type !== 'bytes') {
-      return e.value;
+    // `ethers` allows a wider variety of types for `bytes<size>` and `address` than
+    // `ethereumjs-abi` did. The `ethereumjs-abi` validation was preserved for backwards
+    // compatibility.
+    if (
+      (e.type === 'address' ||
+        (e.type !== 'bytes' && e.type?.startsWith('bytes'))) &&
+      typeof e.value === 'string' &&
+      !isHexString(e.value)
+    ) {
+      // Preserve error from https://github.com/ethereumjs/ethereumjs-util/blob/v6.2.1/src/bytes.ts#L79
+      throw new Error(
+        `Cannot convert string to buffer. toBuffer only supports 0x-prefixed hex strings and this string was given: ${e.value}`,
+      );
     }
 
-    return legacyToBuffer(e.value);
+    // `ethereumjs-abi` would interpret certain atypical address inputs differently than `ethers`
+    // does. The `ethereumjs-abi` input parsing is preserved for backwards compatibility.
+    // See: https://github.com/ethereumjs/ethereumjs-abi/blob/v0.6.8/lib/index.js#L478
+    if (e.type === 'address') {
+      return ethUtil.setLengthLeft(e.value, 20);
+    }
+
+    // `ethereumjs-abi` would treat negative uint values as positive, whereas `ethers` will not.
+    // The `ethereumjs-abi` behavior is preserved for backwards compatibility.
+    if (
+      e.type?.startsWith('uint') &&
+      typeof e.value === 'number' &&
+      e.value < 0
+    ) {
+      e.value = -e.value;
+    }
+
+    // The maximum and minimum safe integers are not supported by `ethers@5`.
+    // They are converted to strings here to preserve backwards compatibility.
+    // See: https://github.com/ethers-io/ethers.js/issues/1895
+    if (
+      e.type?.startsWith('uint') ||
+      e.type?.startsWith('int') ||
+      e.type?.startsWith('bytes')
+    ) {
+      if (e.value === Number.MAX_SAFE_INTEGER) {
+        e.value = `0x${Number.MAX_SAFE_INTEGER.toString(16)}`;
+      } else if (e.value === Number.MIN_SAFE_INTEGER) {
+        e.value = `-0x${Number.MAX_SAFE_INTEGER.toString(16)}`;
+      }
+    }
+
+    // `ethereumjs-abi` did not allow `number` values for the `string` type, whereas `ethers` does.
+    // An error is thrown in this circumstance to preserve backwards compatibility.
+    if (e.type === 'string' && typeof e.value === 'number') {
+      throw new Error('String values must be passed in as strings or Buffers.');
+    }
+
+    if (e.type === 'bytes') {
+      return legacyToBuffer(e.value);
+    } else if (e.type?.startsWith('bytes')) {
+      // `ethers@5` requires that fixed-size byte data match the size of the type, but
+      // `ethereumjs-abi` has no such requirement. The encoding from `ethereumjs-abi` is preserved
+      // here for backwards compatibility.
+      // See: https://github.com/ethereumjs/ethereumjs-abi/blob/1cfbb13862f90f0b391d8a699544d5fe4dfb8c7b/lib/index.js#L485
+      const byteSize = Number.parseInt(e.type.slice(5), 10);
+      return ethUtil.setLengthRight(e.value, byteSize);
+    }
+    return e.value;
   });
   const types = typedData.map(function (e) {
     return e.type;
@@ -740,12 +878,15 @@ function _typedSignatureHash<T extends MessageTypes>(
     return `${e.type} ${e.name}`;
   });
 
-  return ethAbi.soliditySHA3(
-    ['bytes32', 'bytes32'],
-    [
-      ethAbi.soliditySHA3(new Array(typedData.length).fill('string'), schema),
-      ethAbi.soliditySHA3(types, data),
-    ],
+  return Buffer.from(
+    keccak256(
+      ['bytes32', 'bytes32'],
+      [
+        keccak256(new Array(typedData.length).fill('string'), schema),
+        keccak256(types, data),
+      ],
+    ).slice(2),
+    'hex',
   );
 }
 
